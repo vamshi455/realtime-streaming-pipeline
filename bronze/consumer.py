@@ -93,42 +93,64 @@ async def consume_and_write():
 async def write_batch_to_delta(topic: str, messages: list):
     """
     Write a batch of messages to Delta table on SMB shared drive.
-    Organizes files by topic (asset type), each topic gets its own Delta table.
+    Partitions by asset (delivery_node for LMP, deal_id for deals, etc).
+
+    Structure:
+    /data/market_lmp_raw/
+      ├── delivery_node=HB_NORTH/
+      ├── delivery_node=HB_SOUTH/
+      └── delivery_node=HB_HOUSTON/
     """
     if not messages:
         return
 
-    # Clean topic name for directory
-    asset_name = topic.replace(".", "_").replace("-", "_")
+    # Clean topic name
+    topic_name = topic.replace(".", "_").replace("-", "_")
 
-    # Path on SMB: /Volumes/personal_folder/data/{asset_name}/
-    table_path = os.path.join(DELTA_PATH, asset_name)
+    # Group messages by asset (partition key depends on topic)
+    asset_messages = {}
 
-    try:
-        # Ensure directory exists
-        os.makedirs(table_path, exist_ok=True)
+    for msg in messages:
+        # Determine partition key based on topic
+        if topic == "market.lmp.raw":
+            asset_key = msg.get("delivery_node", "unknown")
+        elif topic == "deal.events":
+            asset_key = msg.get("deal_id", "unknown")
+        elif topic == "nomination.events":
+            asset_key = msg.get("nomination_id", "unknown")
+        else:
+            asset_key = "default"
 
-        # Convert to PyArrow table
-        # Store raw JSON payload + Kafka metadata
-        data = {
-            "_raw_payload": [json.dumps(msg) for msg in messages],
-            "_kafka_offset": [msg.get("_kafka_offset") for msg in messages],
-            "_kafka_partition": [msg.get("_kafka_partition") for msg in messages],
-            "_ingest_ts": [msg.get("_ingest_ts") for msg in messages],
-        }
+        if asset_key not in asset_messages:
+            asset_messages[asset_key] = []
+        asset_messages[asset_key].append(msg)
 
-        table = pa.table(data)
+    # Write each asset's data to its partition directory
+    for asset_key, asset_batch in asset_messages.items():
+        try:
+            # Path: /data/{topic}/asset_key={value}/
+            table_path = os.path.join(DELTA_PATH, topic_name, f"asset_key={asset_key}")
+            os.makedirs(table_path, exist_ok=True)
 
-        # Write to Delta (append mode) on SMB drive
-        write_deltalake(table_path, table, mode="append")
+            # Convert to PyArrow table
+            data = {
+                "_raw_payload": [json.dumps(msg) for msg in asset_batch],
+                "_kafka_offset": [msg.get("_kafka_offset") for msg in asset_batch],
+                "_kafka_partition": [msg.get("_kafka_partition") for msg in asset_batch],
+                "_ingest_ts": [msg.get("_ingest_ts") for msg in asset_batch],
+            }
 
-        logger.info(
-            f"✓ Wrote {len(messages)} messages to {asset_name} "
-            f"(offsets {messages[0].get('_kafka_offset')}–{messages[-1].get('_kafka_offset')}) "
-            f"→ {table_path}"
-        )
-    except Exception as e:
-        logger.error(f"Failed to write batch to Delta: {e}", exc_info=True)
+            table = pa.table(data)
+
+            # Write to Delta (append mode)
+            write_deltalake(table_path, table, mode="append")
+
+            logger.info(
+                f"✓ Wrote {len(asset_batch)} messages to {topic_name}/asset_key={asset_key} "
+                f"→ {table_path}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to write batch for {asset_key}: {e}", exc_info=True)
 
 
 async def main():
