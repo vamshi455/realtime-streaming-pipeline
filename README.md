@@ -16,54 +16,41 @@ A production-oriented, event-driven data streaming platform demonstrating high-v
 
 ## Architecture Overview
 
-```mermaid
-graph LR
-    Producer["Producer<br/>(FastAPI)<br/>LMP ticks | Deals | Nominations"]
-    
-    Producer -->|"market.lmp.raw<br/>deal.events<br/>nomination.events"| Redpanda["Redpanda<br/>(Kafka-compatible<br/>Event Bus)"]
-    
-    Redpanda -->|topics| Bronze["🔵 Bronze Layer<br/>(Append-only Raw)<br/>Delta Tables"]
-    Bronze -->|"raw events<br/>+ ingest timestamp"| Silver["🟡 Silver Layer<br/>(Version-Wins MERGE)<br/>Dedup | Watermark=4h"]
-    Silver -->|"deduped streams<br/>+ metrics"| Gold["🟢 Gold Layer<br/>(Windowed Aggregation)<br/>Positions | Dual Sink"]
-    
-    Gold -->|"Dual Sink 1"| DeltaGold["✓ Delta MERGE<br/>gold_positions<br/>(source of truth)"]
-    Gold -->|"Dual Sink 2"| Redis["🔴 Redis Cache<br/>position:{book}:{node}:{period}<br/>(read-optimized live state)"]
-    Gold -->|"Dual Sink 3"| Metrics["📊 Metrics<br/>Event counts<br/>Latency | Loss"]
-    
-    Gold -->|"corrections<br/>older than<br/>watermark"| Batch["⚙️ Batch Recompute<br/>(Recovery Path)<br/>Affected keys only"]
-    Batch -->|MERGE| DeltaGold
-    
-    DeltaGold -->|snapshot| Postgres["🔵 Postgres<br/>Book of Record<br/>position_snapshot<br/>reconciliation_alerts"]
-    
-    DeltaGold & Postgres -->|compare| Reconcile["🔄 Reconciliation Job<br/>Drift Detection<br/>Auto-heal | Alert"]
-    
-    Redis --> Dashboard["📈 Streamlit Dashboard<br/>Volumes | Latency | Positions<br/>Corrections | System Health"]
-    Postgres --> Dashboard
-    Metrics --> Dashboard
-    Reconcile --> Dashboard
+Simple, learning-focused event streaming pipeline:
+
+```
+Producer (FastAPI)
+    ↓
+    Emits events to Redpanda topics
+    ↓
+Redpanda (Kafka-compatible Event Broker)
+    ↓
+    Partitioned, replicated message buffer
+    ↓
+Bronze (Raw Data Storage)
+    ↓
+    Append-only Delta tables, immutable record
 ```
 
-### Data Flow: From Event to Dashboard
+**That's it.** No transformations, no aggregations. Just: produce events → broker buffers them → storage captures everything.
 
-1. **Producer** emits events (LMP ticks every 5 min, deal captures on trade, nomination amendments as they arrive) to Redpanda topics keyed by entity (delivery_node, deal_id)
-2. **Bronze** ingests raw Kafka bytes → Delta, preserves full history for replay
-3. **Silver** applies version-wins MERGE on Bronze (dedup via deal_id, revision_number, timestamp), respects watermark=4 hours (catches late nominations)
-4. **Gold** joins Silver streams (deal legs + LMP prices) → position aggregates (net_mw, mtm_value per book/node/settlement_period)
-5. **Dual sink** from Gold: (a) Delta MERGE for durability + audit history, (b) Redis for sub-second read latency
-6. **Recovery path**: corrections older than 4h watermark route to batch_recompute (targeted replay of affected keys only)
-7. **Reconciliation**: periodically compare Gold vs Postgres book-of-record, flag/heal drift, alert on unreconciled gaps
-8. **Dashboard** aggregates event counts (received→processed→lost→recovered), latency metrics, live positions, recovery state, system health
+### Data Flow: Event to Storage
 
-### Observability: The "Volumes" Story
+1. **Producer** emits event (LMP tick, deal event, nomination) to Redpanda topic with business timestamp (`event_time`)
+2. **Redpanda** assigns offset, replicates to 3 brokers (durability), waits for ack
+3. **Bronze consumer** reads offset from topic, extracts raw payload
+4. **Bronze storage** appends to Delta table with Kafka metadata (`_kafka_offset`, `_kafka_partition`, `_ingest_ts`)
+5. **Immutable record**: Event stored forever (until retention policy deletes it)
 
-Every component emits event counts:
-- **Producer**: `events_emitted_total` per topic
-- **Bronze**: `events_ingested_total` per topic
-- **Silver**: `events_merged` (version-wins applied), `events_deduped` (duplicates detected), `events_dropped_old_corrections`
-- **Gold**: `events_aggregated`, `events_lost_older_than_watermark`, `recovery_triggered`, `recovery_successful`
-- **Reconciliation**: `drift_detected`, `drift_auto_healed`, `drift_alerted_manual`
+End-to-end latency: ~100–200ms from event creation to durable storage.
 
-Dashboard "Volumes" page shows the complete flow: **received → processed → lost → recovered**. This is your single source of truth for data quality.
+### Learning Goals
+
+- Understand producer/broker/consumer pattern (core of all streaming systems)
+- See how Redpanda (Kafka protocol) works
+- Learn why append-only storage is useful for data systems
+- Explore how events are partitioned and ordered
+- Debug real issues: lag, duplicates, broker failures
 
 ## Quick Start
 
