@@ -13,7 +13,9 @@ import pyarrow as pa
 KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "localhost:9092").split(",")
 CONSUMER_GROUP = os.getenv("KAFKA_CONSUMER_GROUP", "bronze-ingest")
 BRONZE_LOG_LEVEL = os.getenv("BRONZE_LOG_LEVEL", "INFO")
-DELTA_PATH = os.getenv("DELTA_PATH", "/data/delta")
+
+# SMB shared drive path (mounted on Mac)
+DELTA_PATH = os.getenv("DELTA_PATH", "/Volumes/personal_folder/data")
 
 TOPIC_LMP = os.getenv("KAFKA_TOPIC_LMP", "market.lmp.raw")
 TOPIC_DEALS = os.getenv("KAFKA_TOPIC_DEALS", "deal.events")
@@ -89,16 +91,25 @@ async def consume_and_write():
 
 
 async def write_batch_to_delta(topic: str, messages: list):
-    """Write a batch of messages to Delta table"""
+    """
+    Write a batch of messages to Delta table on SMB shared drive.
+    Organizes files by topic (asset type), each topic gets its own Delta table.
+    """
     if not messages:
         return
 
-    table_name = f"bronze_{topic.replace('.', '_').replace('-', '_')}"
-    table_path = os.path.join(DELTA_PATH, table_name)
+    # Clean topic name for directory
+    asset_name = topic.replace(".", "_").replace("-", "_")
+
+    # Path on SMB: /Volumes/personal_folder/data/{asset_name}/
+    table_path = os.path.join(DELTA_PATH, asset_name)
 
     try:
+        # Ensure directory exists
+        os.makedirs(table_path, exist_ok=True)
+
         # Convert to PyArrow table
-        # For simplicity, store raw JSON as string + metadata
+        # Store raw JSON payload + Kafka metadata
         data = {
             "_raw_payload": [json.dumps(msg) for msg in messages],
             "_kafka_offset": [msg.get("_kafka_offset") for msg in messages],
@@ -108,12 +119,13 @@ async def write_batch_to_delta(topic: str, messages: list):
 
         table = pa.table(data)
 
-        # Write to Delta (append mode)
+        # Write to Delta (append mode) on SMB drive
         write_deltalake(table_path, table, mode="append")
 
         logger.info(
-            f"Wrote {len(messages)} messages to {table_name} "
-            f"(offsets {messages[0].get('_kafka_offset')}–{messages[-1].get('_kafka_offset')})"
+            f"✓ Wrote {len(messages)} messages to {asset_name} "
+            f"(offsets {messages[0].get('_kafka_offset')}–{messages[-1].get('_kafka_offset')}) "
+            f"→ {table_path}"
         )
     except Exception as e:
         logger.error(f"Failed to write batch to Delta: {e}", exc_info=True)

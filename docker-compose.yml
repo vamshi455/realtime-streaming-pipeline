@@ -92,7 +92,7 @@ services:
       timeout: 3s
       retries: 5
 
-  # Bronze Consumer: Reads from Redpanda, writes to Delta
+  # Bronze Consumer: Reads from Redpanda, writes to SMB shared drive
   bronze:
     build:
       context: ./bronze
@@ -102,7 +102,7 @@ services:
       KAFKA_BROKERS: ${REDPANDA_BROKER}
       KAFKA_CONSUMER_GROUP: ${BRONZE_CONSUMER_GROUP}
       BRONZE_LOG_LEVEL: ${BRONZE_LOG_LEVEL}
-      DELTA_PATH: ${DELTA_PATH}
+      DELTA_PATH: /Volumes/personal_folder/data
       KAFKA_TOPIC_LMP: ${KAFKA_TOPIC_LMP}
       KAFKA_TOPIC_DEALS: ${KAFKA_TOPIC_DEALS}
       KAFKA_TOPIC_NOMINATIONS: ${KAFKA_TOPIC_NOMINATIONS}
@@ -111,7 +111,7 @@ services:
         condition: service_completed_successfully
     volumes:
       - ./bronze:/app
-      - ./data/delta:${DELTA_PATH}
+      - /Volumes/personal_folder/data:/Volumes/personal_folder/data
       - /app/__pycache__
     networks:
       - streaming
