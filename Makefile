@@ -25,22 +25,22 @@ help:
 
 up:
 	@echo "Starting Realtime Streaming Pipeline..."
-	docker-compose up -d
+	docker compose up -d
 	@echo "Waiting for services to be ready..."
 	@sleep 3
 	@make health
 
 down:
 	@echo "Stopping services..."
-	docker-compose down
+	docker compose down
 
 restart:
 	@echo "Restarting services..."
-	docker-compose restart
+	docker compose restart
 
 clean:
 	@echo "Stopping services and removing volumes..."
-	docker-compose down -v
+	docker compose down -v
 	@echo "Cleaned."
 
 health:
@@ -58,16 +58,16 @@ health:
 	@echo ""
 
 logs:
-	docker-compose logs -f
+	docker compose logs -f
 
 logs-producer:
-	docker-compose logs -f producer
+	docker compose logs -f producer
 
 logs-bronze:
-	docker-compose logs -f bronze
+	docker compose logs -f bronze
 
 logs-redpanda:
-	docker-compose logs -f redpanda
+	docker compose logs -f redpanda
 
 topics:
 	@echo "Redpanda Topics:"
@@ -139,6 +139,6 @@ build-all: build-producer build-bronze
 	@echo "All images built."
 
 ps:
-	docker-compose ps
+	docker compose ps
 
 .DEFAULT_GOAL := help
