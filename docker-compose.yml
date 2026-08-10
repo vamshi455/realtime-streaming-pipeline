@@ -1,0 +1,124 @@
+version: '3.9'
+
+services:
+  # Redpanda: Kafka-compatible event broker
+  redpanda:
+    image: redpandadata/redpanda:latest
+    container_name: redpanda
+    command:
+      - redpanda
+      - start
+      - --kafka-addr 0.0.0.0:9092
+      - --advertise-kafka-addr redpanda:9092
+      - --pandaproxy-addr 0.0.0.0:8082
+      - --advertise-pandaproxy-addr redpanda:8082
+      - --schema-registry-addr 0.0.0.0:8081
+    ports:
+      - "9092:9092"   # Kafka API
+      - "8081:8081"   # Schema Registry
+      - "8082:8082"   # Pandaproxy (HTTP)
+      - "9644:9644"   # Admin API
+    environment:
+      REDPANDA_ID: 0
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9644/v1/status/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - streaming
+
+  # Topic initialization
+  rpk-init:
+    image: redpandadata/redpanda:latest
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        rpk topic create ${KAFKA_TOPIC_LMP} \
+          -p ${REDPANDA_PARTITIONS} \
+          -r 1 \
+          --brokers redpanda:9092 || true
+        rpk topic create ${KAFKA_TOPIC_DEALS} \
+          -p ${REDPANDA_PARTITIONS} \
+          -r 1 \
+          --brokers redpanda:9092 || true
+        rpk topic create ${KAFKA_TOPIC_NOMINATIONS} \
+          -p ${REDPANDA_PARTITIONS} \
+          -r 1 \
+          --brokers redpanda:9092 || true
+        echo "Topics created"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      KAFKA_TOPIC_LMP: ${KAFKA_TOPIC_LMP}
+      KAFKA_TOPIC_DEALS: ${KAFKA_TOPIC_DEALS}
+      KAFKA_TOPIC_NOMINATIONS: ${KAFKA_TOPIC_NOMINATIONS}
+      REDPANDA_PARTITIONS: ${REDPANDA_PARTITIONS}
+    networks:
+      - streaming
+
+  # Producer: FastAPI server that emits events
+  producer:
+    build:
+      context: ./producer
+      dockerfile: Dockerfile
+    container_name: producer
+    ports:
+      - "${PRODUCER_PORT}:${PRODUCER_PORT}"
+    environment:
+      KAFKA_BROKERS: ${REDPANDA_BROKER}
+      PRODUCER_PORT: ${PRODUCER_PORT}
+      PRODUCER_HOST: ${PRODUCER_HOST}
+      PRODUCER_LOG_LEVEL: ${PRODUCER_LOG_LEVEL}
+      PRODUCER_EMIT_RATE: ${PRODUCER_EMIT_RATE}
+      KAFKA_TOPIC_LMP: ${KAFKA_TOPIC_LMP}
+      KAFKA_TOPIC_DEALS: ${KAFKA_TOPIC_DEALS}
+      KAFKA_TOPIC_NOMINATIONS: ${KAFKA_TOPIC_NOMINATIONS}
+    depends_on:
+      rpk-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./producer:/app
+      - /app/__pycache__
+    networks:
+      - streaming
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PRODUCER_PORT}/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Bronze Consumer: Reads from Redpanda, writes to Delta
+  bronze:
+    build:
+      context: ./bronze
+      dockerfile: Dockerfile
+    container_name: bronze
+    environment:
+      KAFKA_BROKERS: ${REDPANDA_BROKER}
+      KAFKA_CONSUMER_GROUP: ${BRONZE_CONSUMER_GROUP}
+      BRONZE_LOG_LEVEL: ${BRONZE_LOG_LEVEL}
+      DELTA_PATH: ${DELTA_PATH}
+      KAFKA_TOPIC_LMP: ${KAFKA_TOPIC_LMP}
+      KAFKA_TOPIC_DEALS: ${KAFKA_TOPIC_DEALS}
+      KAFKA_TOPIC_NOMINATIONS: ${KAFKA_TOPIC_NOMINATIONS}
+    depends_on:
+      rpk-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./bronze:/app
+      - ./data/delta:${DELTA_PATH}
+      - /app/__pycache__
+    networks:
+      - streaming
+
+volumes:
+  redpanda_data:
+
+networks:
+  streaming:
+    driver: bridge

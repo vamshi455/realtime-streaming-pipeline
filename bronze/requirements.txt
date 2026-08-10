@@ -1,0 +1,4 @@
+aiokafka==0.9.0
+deltalake==0.13.0
+pyarrow==13.0.0
+python-dotenv==1.0.0
