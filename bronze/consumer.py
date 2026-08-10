@@ -57,7 +57,7 @@ async def consume_and_write():
 
     await consumer.start()
     batch_buffer = {topic: [] for topic in TOPICS}
-    batch_size = 100  # Write after collecting this many messages
+    batch_size = 5  # Write after collecting this many messages (lower for testing)
 
     try:
         async for message in consumer:
