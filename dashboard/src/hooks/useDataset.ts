@@ -1,5 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Dataset, SchemaField } from '@/types'
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const API_BASE_URL = (import.meta.env as any).VITE_API_URL || 'http://localhost:8000'
 
 const MOCK_DATASET: Dataset = {
   id: 'ds-001',
@@ -249,6 +252,32 @@ export function useDataset() {
     nullable: true,
     relationshipTarget: true,
   })
+  const [isLoading, setIsLoading] = useState(false)
+  const [apiError, setApiError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const fetchDataset = async () => {
+      setIsLoading(true)
+      setApiError(null)
+      try {
+        const response = await fetch(`${API_BASE_URL}/dataset`)
+        if (response.ok) {
+          const data = await response.json()
+          setDataset(data)
+        } else {
+          console.warn('Dataset API returned non-200 status, using mock data')
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to fetch dataset'
+        console.warn('Dataset API error, using mock data:', message)
+        setApiError(message)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchDataset()
+  }, [])
 
   const currentTable = dataset.tables.find((t) => t.name === selectedTable)
 
@@ -276,6 +305,38 @@ export function useDataset() {
 
   const blockingIssuesCount = dataset.privacyIssues.filter((i) => i.severity === 'error').length
 
+  const emitBatch = async (eventType: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/emit/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event_type: eventType,
+          count: dataset.targetRows,
+          events: [],
+          frequency: 'once',
+          constraints: {
+            seed: dataset.seed,
+            preserveNulls: true,
+            deterministicId: true,
+          },
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.statusText}`)
+      }
+
+      const result = await response.json()
+      console.log('Generation started:', result)
+      return result
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Generation failed'
+      console.error('Generation error:', message)
+      throw error
+    }
+  }
+
   return {
     dataset,
     selectedTable,
@@ -289,5 +350,8 @@ export function useDataset() {
     updateField,
     updateDatasetConfig,
     blockingIssuesCount,
+    isLoading,
+    apiError,
+    emitBatch,
   }
 }

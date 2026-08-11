@@ -105,6 +105,115 @@ async def get_metrics():
     return metrics
 
 
+@app.get("/dataset")
+async def get_dataset():
+    """Return dataset configuration for the React UI"""
+    return {
+        "id": "ds-ecommerce-001",
+        "name": "E-commerce Customer Orders",
+        "description": "Relational dataset with customer, order, and order item tables for synthetic data generation.",
+        "source": "PostgreSQL - production_db",
+        "created": "2024-08-10T10:30:00Z",
+        "modified": datetime.now().isoformat(),
+        "seed": 42,
+        "targetRows": 1000000,
+        "estimatedRuntime": 240,
+        "configurationComplete": 92,
+        "status": "ready",
+        "privacyIssues": [
+            {
+                "id": "pi-001",
+                "fieldName": "email",
+                "tableName": "Customers",
+                "severity": "error",
+                "message": "PII field requires masking strategy",
+                "remediation": "Add PII masking strategy: hash, encrypt, or synthetic",
+                "fieldId": "customers-email",
+            },
+            {
+                "id": "pi-002",
+                "fieldName": "date_of_birth",
+                "tableName": "Customers",
+                "severity": "error",
+                "message": "PII field requires masking strategy",
+                "remediation": "Add PII masking strategy: generalize to age brackets or encrypt",
+                "fieldId": "customers-dob",
+            },
+        ],
+        "tables": [
+            {
+                "name": "customers",
+                "displayName": "Customers",
+                "description": "Customer master data with demographic and contact information",
+                "isSelected": True,
+                "rowCount": 500000,
+                "fields": [
+                    {
+                        "id": "customers-customer_id",
+                        "fieldName": "customer_id",
+                        "dataType": "integer",
+                        "nullable": False,
+                        "generatorType": "sequential",
+                        "distribution": "1-1000000",
+                        "piiLabel": "none",
+                        "relationshipTarget": "orders.customer_id",
+                        "isConfigured": True,
+                        "configurationStatus": "complete",
+                    },
+                    {
+                        "id": "customers-email",
+                        "fieldName": "email",
+                        "dataType": "string",
+                        "nullable": False,
+                        "generatorType": "faker",
+                        "distribution": "email",
+                        "piiLabel": "email",
+                        "piiMaskingStrategy": None,
+                        "isConfigured": False,
+                        "configurationStatus": "blocked",
+                        "blockReason": "Missing PII masking strategy",
+                    },
+                    {
+                        "id": "customers-date_of_birth",
+                        "fieldName": "date_of_birth",
+                        "dataType": "date",
+                        "nullable": True,
+                        "generatorType": "faker",
+                        "distribution": "date_of_birth",
+                        "piiLabel": "dob",
+                        "piiMaskingStrategy": None,
+                        "isConfigured": False,
+                        "configurationStatus": "blocked",
+                        "blockReason": "Missing PII masking strategy",
+                    },
+                    {
+                        "id": "customers-country",
+                        "fieldName": "country",
+                        "dataType": "string",
+                        "nullable": False,
+                        "generatorType": "faker",
+                        "distribution": "country",
+                        "piiLabel": "none",
+                        "isConfigured": True,
+                        "configurationStatus": "complete",
+                    },
+                    {
+                        "id": "customers-created_at",
+                        "fieldName": "created_at",
+                        "dataType": "timestamp",
+                        "nullable": False,
+                        "generatorType": "timestamp",
+                        "distribution": "2020-01-01 to now",
+                        "piiLabel": "none",
+                        "isConfigured": True,
+                        "configurationStatus": "complete",
+                    },
+                ],
+            },
+        ],
+    }
+
+
 # Event Emission Endpoints
 @app.post("/emit/lmp")
 async def emit_lmp(lmp: LmpTick):
