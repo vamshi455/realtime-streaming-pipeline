@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+body {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+  }
+
+  body {
+    background: #0f172a;
+    color: #f1f5f9;
+  }
+}
+
+@font-feature-values "Fira Code" {
+  @styleset --tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+table {
+  font-variant-numeric: tabular-nums;
+}
+
+button, input, select, textarea {
+  font-size: 16px;
+}
+
+@media (max-width: 768px) {
+  button, input, select, textarea {
+    font-size: 16px;
+  }
+}

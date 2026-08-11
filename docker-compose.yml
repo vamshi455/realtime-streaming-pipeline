@@ -116,31 +116,28 @@ services:
     networks:
       - streaming
 
-  # Streamlit Synthetic Data Generator
+  # Synthetic Data Studio (React)
   generator:
     build:
       context: ./dashboard
       dockerfile: Dockerfile
     container_name: generator
     ports:
-      - "8501:8501"
-    environment:
-      STREAMLIT_SERVER_PORT: 8501
-      STREAMLIT_SERVER_ADDRESS: 0.0.0.0
-      STREAMLIT_SERVER_HEADLESS: "true"
+      - "5173:5173"
     depends_on:
       - producer
     volumes:
-      - ./dashboard:/app
-      - ./shared:/app/../shared
-      - /app/__pycache__
+      - ./dashboard/src:/app/src
+      - ./dashboard/public:/app/public
     networks:
       - streaming
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:5173/"]
       interval: 10s
       timeout: 5s
       retries: 3
+    environment:
+      NODE_ENV: production
 
 volumes:
   redpanda_data:

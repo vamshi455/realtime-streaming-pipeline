@@ -1,16 +1,37 @@
-FROM python:3.11-slim
+# Build stage
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
+# Copy package files
+COPY package*.json ./
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install dependencies
+RUN npm ci
 
+# Copy source
 COPY . .
 
-EXPOSE 8501
+# Build
+RUN npm run build
 
-CMD ["streamlit", "run", "generator.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Production stage
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install serve to run the app
+RUN npm install -g serve
+
+# Copy built app from builder
+COPY --from=builder /app/dist ./dist
+
+# Expose port
+EXPOSE 5173
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:5173/ || exit 1
+
+# Start app
+CMD ["serve", "-s", "dist", "-l", "5173"]
