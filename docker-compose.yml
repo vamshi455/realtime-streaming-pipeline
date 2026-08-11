@@ -116,6 +116,32 @@ services:
     networks:
       - streaming
 
+  # Streamlit Synthetic Data Generator
+  generator:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: generator
+    ports:
+      - "8501:8501"
+    environment:
+      STREAMLIT_SERVER_PORT: 8501
+      STREAMLIT_SERVER_ADDRESS: 0.0.0.0
+      STREAMLIT_SERVER_HEADLESS: "true"
+    depends_on:
+      - producer
+    volumes:
+      - ./dashboard:/app
+      - ./shared:/app/../shared
+      - /app/__pycache__
+    networks:
+      - streaming
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
 volumes:
   redpanda_data:
 

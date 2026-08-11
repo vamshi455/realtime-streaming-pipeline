@@ -3,7 +3,7 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -58,6 +58,16 @@ class NominationEvent(BaseModel):
     deal_id: str
     status: str
     event_time: Optional[str] = None
+
+
+class BatchEmitRequest(BaseModel):
+    """Batch emit request from generator"""
+    event_type: str
+    count: int
+    events: List[Dict[str, Any]]
+    frequency: Optional[str] = "Once"
+    constraints: Optional[Dict] = None
+    timestamp: Optional[str] = None
 
 
 # Startup / Shutdown
@@ -170,6 +180,74 @@ async def emit_nomination(nom: NominationEvent):
         return {"status": "emitted", "topic": TOPIC_NOMINATIONS, "message": message}
     except Exception as e:
         logger.error(f"Failed to emit nomination: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Batch Emit: From Synthetic Data Generator
+@app.post("/emit/batch")
+async def emit_batch(request: BatchEmitRequest):
+    """
+    Emit batch of pre-generated events to Kafka.
+    Used by Synthetic Data Generator dashboard.
+    """
+    if not kafka_producer or kafka_producer._closed:
+        raise HTTPException(status_code=503, detail="Kafka producer not ready")
+
+    event_type = request.event_type
+    events = request.events
+    frequency = request.frequency or "Once"
+
+    # Map event_type to topic
+    topic_map = {
+        "lmp_tick": TOPIC_LMP,
+        "deal_event": TOPIC_DEALS,
+        "nomination_event": TOPIC_NOMINATIONS,
+        "iot_sensor": "iot.sensor.raw",
+        "financial_price": "financial.price.raw",
+    }
+
+    topic = topic_map.get(event_type)
+    if not topic:
+        raise HTTPException(status_code=400, detail=f"Unknown event_type: {event_type}")
+
+    try:
+        emitted = 0
+        for event in events:
+            # Determine key for partitioning
+            if event_type == "lmp_tick":
+                key = event.get("delivery_node", "unknown").encode()
+            elif event_type == "deal_event":
+                key = event.get("deal_id", "unknown").encode()
+            elif event_type == "nomination_event":
+                key = event.get("nomination_id", "unknown").encode()
+            elif event_type == "iot_sensor":
+                key = event.get("sensor_id", "unknown").encode()
+            elif event_type == "financial_price":
+                key = event.get("symbol", "unknown").encode()
+            else:
+                key = b"default"
+
+            await kafka_producer.send_and_wait(topic, value=event, key=key)
+            emitted += 1
+
+        metrics["events_emitted_total"] += emitted
+        metrics["events_emitted_by_topic"][topic] = metrics["events_emitted_by_topic"].get(topic, 0) + emitted
+
+        logger.info(
+            f"Batch emitted {emitted} {event_type} events to {topic} "
+            f"(frequency: {frequency})"
+        )
+
+        return {
+            "status": "success",
+            "topic": topic,
+            "event_type": event_type,
+            "count": emitted,
+            "frequency": frequency,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to emit batch: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
